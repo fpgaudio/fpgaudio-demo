@@ -1,0 +1,5 @@
+[wrap-git]
+url = https://github.com/fpgaudio/orpheus.git
+revision = main
+depth = 1
+clone-recursive = true
