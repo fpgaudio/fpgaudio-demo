@@ -6,7 +6,6 @@
 #include <cstdio>
 #include <cstring>
 #include <deque>
-#include <math.h>
 #include <memory>
 #include <mutex>
 #include <soundio/soundio.h>
@@ -19,22 +18,19 @@
 #include <vector>
 #include "subprojects/orpheus/lib/Catch2/single_include/catch2/catch.hpp"
 #include "synchronizedbuffer.hpp"
-#include "orpheus.hpp"
 #include "udpsocket.hpp"
 
 #define DEBUG
 
-static float secondsOffset = 0.0;
 static Orpheus::Engine* s_engine;
 static Orpheus::Graph::Node* s_outNode;
 
-float OrpheusSampleToFloat(Orpheus::Engine::QuantType sample) {
-  return static_cast<float>(sample) * (1 / pow(2, 15));
+auto OrpheusSampleToFloat(Orpheus::Engine::QuantType sample) -> float {
+  return sample * (1 / powf(2, 15));
 }
 
 static void write_cb(struct SoundIoOutStream* str, int minCount, int maxCount) {
   size_t framesLeft = maxCount;
-  float secondsPerFame = 1.0F / str->sample_rate;
 
   while (framesLeft > 0) {
     int frameCount = framesLeft;
@@ -53,13 +49,11 @@ static void write_cb(struct SoundIoOutStream* str, int minCount, int maxCount) {
     for (int frame = 0; frame < frameCount; frame++) {
       const float sample = OrpheusSampleToFloat((*s_outNode)());
       for (int channel = 0; channel < str->layout.channel_count; channel++) {
-        float* ptr = (float*)(areas[channel].ptr + areas[channel].step * frame);
+        auto* ptr = (float*)(areas[channel].ptr + areas[channel].step * frame);
         *ptr = sample;
       }
       s_engine->tick();
     }
-
-    secondsOffset = fmodf(secondsOffset + secondsPerFame * frameCount, 1.0F);
 
     const auto endErr = soundio_outstream_end_write(str);
     if (endErr != 0) {
@@ -186,13 +180,6 @@ private:
   std::unique_ptr<struct SoundIo> m_soundio;
   std::unique_ptr<Device> m_dev;
 };
-
-void populateRunnable(SynchronizedBuffer<float, true>& buf) {
-  while (true) {
-    std::vector<float> test = { 1, 2, 3, 4, 5 };
-    buf.Write(test.cbegin(), test.cend());
-  }
-}
 
 struct __attribute__((packed)) HandData_S
 {
