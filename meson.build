@@ -16,10 +16,11 @@ sources = [
 liborpheus_proj = subproject('orpheus')
 liborpheus_dep = liborpheus_proj.get_variable('liborpheus_dep')
 
+curses_dep = dependency('curses', required: true)
 libsoundio_dep = cppc.find_library('soundio', required: true)
 
 executable('fpgaudio-demo',
   sources,
   include_directories: include_directories,
-  dependencies: [liborpheus_dep, libsoundio_dep]
+  dependencies: [liborpheus_dep, libsoundio_dep, curses_dep]
 )

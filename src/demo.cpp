@@ -2,25 +2,21 @@
 #include "orpheus.hpp"
 #include <algorithm>
 #include <cmath>
-#include <cstddef>
 #include <cstdio>
 #include <cstring>
-#include <deque>
-#include <iterator>
 #include <limits>
 #include <memory>
-#include <mutex>
+#include <numbers>
 #include <soundio/soundio.h>
-#include <stdexcept>
 #include <optional>
 #include <string>
 #include <iostream>
-#include <utility>
 #include <thread>
 #include <vector>
-#include "subprojects/orpheus/lib/Catch2/single_include/catch2/catch.hpp"
 #include "synchronizedbuffer.hpp"
 #include "udpsocket.hpp"
+#include "zen.hpp"
+#include <curses.h>
 
 #define DEBUG
 
@@ -34,17 +30,38 @@ struct __attribute__((packed)) HandData_S
 };
 union HandData { HandData_S asStruct; std::byte asArr[sizeof(HandData_S)]; };
 
+struct KeyData_S
+{
+  bool c;
+  bool csharp;
+  bool d;
+  bool dsharp;
+  bool e;
+  bool esharp;
+  bool f;
+  bool fsharp;
+  bool g;
+  bool gsharp;
+  bool a;
+  bool b;
+};
+static Parallel::CopyLockbox<KeyData_S> m_keyPress;
+
 static Parallel::CopyLockbox<HandData> m_dataBox;
 
 static Orpheus::Engine* s_engine;
 static Orpheus::Graph::Node* s_outNode;
+static Orpheus::Graph::SineSource* s_base;
+static Orpheus::Graph::SineSource* s_h1;
+static Orpheus::Graph::SineSource* s_h2;
+static Orpheus::Graph::SineSource* s_h3;
 static Orpheus::Graph::Attenuator* s_outAtten;
 static Orpheus::Graph::Attenuator* s_h1Atten;
 static Orpheus::Graph::Attenuator* s_h2Atten;
 static Orpheus::Graph::Attenuator* s_h3Atten;
 
 auto OrpheusSampleToFloat(Orpheus::Engine::QuantType sample) -> float {
-  return sample * (1 / powf(2, 15));
+  return sample * (1 / std::pow(2, 15));
 }
 
 static void write_cb(struct SoundIoOutStream* str, int minCount, int maxCount) {
@@ -66,14 +83,16 @@ static void write_cb(struct SoundIoOutStream* str, int minCount, int maxCount) {
 
     for (int frame = 0; frame < frameCount; frame++) {
       const auto currentHandData = m_dataBox.Get();
+      const auto currentKeyPresses = m_keyPress.Get();
       // Seed the Engine
-      s_outAtten->setAtten((currentHandData.asStruct.distance / 200)
+
+      s_outAtten->setAtten((currentHandData.asStruct.distance / 1100)
           * std::numeric_limits<Orpheus::Graph::Attenuator::AttenFactor>::max());
-      s_h1Atten->setAtten((currentHandData.asStruct.indexAngle / 360)
+      s_h1Atten->setAtten((currentHandData.asStruct.indexAngle / std::numbers::pi)
           * std::numeric_limits<Orpheus::Graph::Attenuator::AttenFactor>::max());
-      s_h2Atten->setAtten((currentHandData.asStruct.middleAngle / 360)
+      s_h2Atten->setAtten((currentHandData.asStruct.middleAngle / std::numbers::pi)
           * std::numeric_limits<Orpheus::Graph::Attenuator::AttenFactor>::max());
-      s_h3Atten->setAtten((currentHandData.asStruct.ringAngle / 360)
+      s_h3Atten->setAtten((currentHandData.asStruct.ringAngle / std::numbers::pi)
           * std::numeric_limits<Orpheus::Graph::Attenuator::AttenFactor>::max());
 
       // Sample the engine
@@ -120,7 +139,7 @@ public:
     Device(soundIo, soundio_default_output_device_index(soundIo), writeCallback) {
 #ifdef DEBUG
     std::cout << "Available Devices:" << std::endl;
-    for (size_t i = 0; i < soundio_output_device_count(soundIo); i++) {
+    for (size_t i = 0; i < static_cast<size_t>(soundio_output_device_count(soundIo)); i++) {
       const auto dev = soundio_get_output_device(soundIo, i);
       std::cout << "  - " << dev->id << std::endl;
     }
@@ -223,6 +242,8 @@ void ipserver() {
     // TODO(markovejnovic): Yikes
     std::memcpy(&deserialized.asArr[0], begin, dataSize);
 
+    Zen::dump_struct(deserialized);
+
     m_dataBox.Set(deserialized);
   }};
   server.Begin();
@@ -236,6 +257,56 @@ auto main(int argc, char** argv) -> int {
       .ringAngle = 0.0,
       .pinkyAngle = 0.0,
   }});
+  m_keyPress.Set({ 0 });
+
+  const auto m_keythread = std::thread([] (){
+    auto timeout = 100;
+    while (true) {
+      const auto key = getch();
+      if (key == ERR) {
+        continue;
+      }
+
+      switch (key) {
+        case 'd':
+          m_keyPress.Set({ .c = true });
+          timeout = 100;
+          break;
+        case 'f':
+          m_keyPress.Set({ .d = true });
+          timeout = 100;
+          break;
+        case 'g':
+          m_keyPress.Set({ .e = true });
+          timeout = 100;
+          break;
+        case 'h':
+          m_keyPress.Set({ .f = true });
+          timeout = 100;
+          break;
+        case 'j':
+          m_keyPress.Set({ .g = true });
+          timeout = 100;
+          break;
+        case 'k':
+          m_keyPress.Set({ .a = true });
+          timeout = 100;
+          break;
+        case 'l':
+          m_keyPress.Set({ .b = true });
+          timeout = 100;
+          break;
+        default:
+          timeout -= 16;
+          break;
+      }
+      if (timeout <= 0) {
+        m_keyPress.Set({ 0 });
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(16));
+    }
+  });
+
   const auto m_serveThread = std::thread(ipserver);
   auto eng = Orpheus::EngineFactory().ofSampleRate(Orpheus::EngineFactory::SampleRate::kHz48).build();
   s_engine = &eng;
@@ -262,6 +333,10 @@ auto main(int argc, char** argv) -> int {
 
   Orpheus::Graph::Attenuator outAtten { &eng, sum };
 
+  s_base = &m_base;
+  s_h1 = &m_h1;
+  s_h2 = &m_h2;
+  s_h3 = &m_h3;
   s_h1Atten = &m_h1a;
   s_h2Atten = &m_h2a;
   s_h3Atten = &m_h3a;

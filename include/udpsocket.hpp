@@ -20,7 +20,7 @@ namespace Socc
 template<
   std::size_t BufferSize = 1024UL,
   typename PortT = std::uint16_t,
-  bool DebugMode = true
+  bool DebugMode = false
 >
 class UDPServ
 {
@@ -70,7 +70,7 @@ public:
       if (DebugMode) {
         char clientAddrStr[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &clientAddr.sin_addr, clientAddrStr, INET_ADDRSTRLEN);
-        std::cout << "Received " << nBytes << " UDP packets from " << clientAddrStr << std::endl;
+        std::cout << "Received " << nBytes << " bytes from " << clientAddrStr << std::endl;
       }
 
       if (m_onReceivedCallback != nullptr) {
