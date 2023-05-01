@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstring>
 #include <deque>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <soundio/soundio.h>
@@ -22,8 +23,24 @@
 
 #define DEBUG
 
+struct __attribute__((packed)) HandData_S
+{
+  float distance;
+  float indexAngle;
+  float middleAngle;
+  float ringAngle;
+  float pinkyAngle;
+};
+union HandData { HandData_S asStruct; std::byte asArr[sizeof(HandData_S)]; };
+
+static Parallel::CopyLockbox<HandData> m_dataBox;
+
 static Orpheus::Engine* s_engine;
 static Orpheus::Graph::Node* s_outNode;
+static Orpheus::Graph::Attenuator* s_outAtten;
+static Orpheus::Graph::Attenuator* s_h1Atten;
+static Orpheus::Graph::Attenuator* s_h2Atten;
+static Orpheus::Graph::Attenuator* s_h3Atten;
 
 auto OrpheusSampleToFloat(Orpheus::Engine::QuantType sample) -> float {
   return sample * (1 / powf(2, 15));
@@ -47,6 +64,18 @@ static void write_cb(struct SoundIoOutStream* str, int minCount, int maxCount) {
     }
 
     for (int frame = 0; frame < frameCount; frame++) {
+      const auto currentHandData = m_dataBox.Get();
+      // Seed the Engine
+      s_outAtten->setAtten((currentHandData.asStruct.distance / 200)
+          * std::numeric_limits<Orpheus::Graph::Attenuator::AttenFactor>::max());
+      s_h1Atten->setAtten((currentHandData.asStruct.indexAngle / 360)
+          * std::numeric_limits<Orpheus::Graph::Attenuator::AttenFactor>::max());
+      s_h2Atten->setAtten((currentHandData.asStruct.middleAngle / 360)
+          * std::numeric_limits<Orpheus::Graph::Attenuator::AttenFactor>::max());
+      s_h3Atten->setAtten((currentHandData.asStruct.ringAngle / 360)
+          * std::numeric_limits<Orpheus::Graph::Attenuator::AttenFactor>::max());
+
+      // Sample the engine
       const float sample = OrpheusSampleToFloat((*s_outNode)());
       for (int channel = 0; channel < str->layout.channel_count; channel++) {
         auto* ptr = (float*)(areas[channel].ptr + areas[channel].step * frame);
@@ -181,14 +210,6 @@ private:
   std::unique_ptr<Device> m_dev;
 };
 
-struct __attribute__((packed)) HandData_S
-{
-  float distance;
-};
-union HandData { HandData_S asStruct; std::byte asArr[sizeof(HandData_S)]; };
-
-static Parallel::CopyLockbox<HandData> m_dataBox;
-
 void ipserver() {
   Socc::UDPServ<> server {6000, [](auto begin, auto end) {
     m_dataBox.Set({ .asStruct = { .distance = 0.3F } });
@@ -197,6 +218,13 @@ void ipserver() {
 }
 
 auto main(int argc, char** argv) -> int {
+  m_dataBox.Set({.asStruct = {
+      .distance = 0.0,
+      .indexAngle = 0.0,
+      .middleAngle = 0.0,
+      .ringAngle = 0.0,
+      .pinkyAngle = 0.0,
+  }});
   const auto m_serveThread = std::thread(ipserver);
   auto eng = Orpheus::EngineFactory().ofSampleRate(Orpheus::EngineFactory::SampleRate::kHz48).build();
   s_engine = &eng;
@@ -206,18 +234,28 @@ auto main(int argc, char** argv) -> int {
 
   Orpheus::Graph::SineSource m_h1 { &eng };
   m_h1.setPeriodTicks(227);
-
   Orpheus::Graph::Attenuator m_h1a { &eng, m_h1 };
   m_h1a.setAtten(std::numeric_limits<Orpheus::Graph::Attenuator::AttenFactor>::max() / 4);
 
   Orpheus::Graph::SineSource m_h2 { &eng };
   m_h2.setPeriodTicks(113);
-
   Orpheus::Graph::Attenuator m_h2a { &eng, m_h2 };
   m_h2a.setAtten(std::numeric_limits<Orpheus::Graph::Attenuator::AttenFactor>::max() / 8);
 
-  Orpheus::Graph::Sum out_source { &eng, m_base, m_h1a, m_h2a };
-  s_outNode = &out_source;
+  Orpheus::Graph::SineSource m_h3 { &eng };
+  m_h3.setPeriodTicks(56);
+  Orpheus::Graph::Attenuator m_h3a { &eng, m_h3 };
+  m_h3a.setAtten(std::numeric_limits<Orpheus::Graph::Attenuator::AttenFactor>::max() / 16);
+
+  Orpheus::Graph::Sum sum { &eng, m_base, m_h1a, m_h2a };
+
+  Orpheus::Graph::Attenuator outAtten { &eng, sum };
+
+  s_h1Atten = &m_h1a;
+  s_h2Atten = &m_h2a;
+  s_h3Atten = &m_h3a;
+  s_outAtten = &outAtten;
+  s_outNode = &outAtten;
 
   PlaybackDevice m_out;
   m_out.Begin();
