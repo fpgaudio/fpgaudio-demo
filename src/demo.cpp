@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstring>
 #include <deque>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -212,7 +213,17 @@ private:
 
 void ipserver() {
   Socc::UDPServ<> server {6000, [](auto begin, auto end) {
-    m_dataBox.Set({ .asStruct = { .distance = 0.3F } });
+    const auto dataSize = std::distance(begin, end);
+    if (dataSize != sizeof(HandData)) {
+      std::cout << "Received corrupted data of length " << dataSize << ". Ignoring" << std::endl;
+      return;
+    }
+
+    HandData deserialized = {};
+    // TODO(markovejnovic): Yikes
+    std::memcpy(&deserialized.asArr[0], begin, dataSize);
+
+    m_dataBox.Set(deserialized);
   }};
   server.Begin();
 }
