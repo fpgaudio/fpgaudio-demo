@@ -1,6 +1,8 @@
+#include "lockbox.hpp"
 #include "orpheus.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <deque>
@@ -15,8 +17,10 @@
 #include <utility>
 #include <thread>
 #include <vector>
+#include "subprojects/orpheus/lib/Catch2/single_include/catch2/catch.hpp"
 #include "synchronizedbuffer.hpp"
 #include "orpheus.hpp"
+#include "udpsocket.hpp"
 
 #define DEBUG
 
@@ -190,7 +194,23 @@ void populateRunnable(SynchronizedBuffer<float, true>& buf) {
   }
 }
 
+struct __attribute__((packed)) HandData_S
+{
+  float distance;
+};
+union HandData { HandData_S asStruct; std::byte asArr[sizeof(HandData_S)]; };
+
+static Parallel::CopyLockbox<HandData> m_dataBox;
+
+void ipserver() {
+  Socc::UDPServ<> server {6000, [](auto begin, auto end) {
+    m_dataBox.Set({ .asStruct = { .distance = 0.3F } });
+  }};
+  server.Begin();
+}
+
 auto main(int argc, char** argv) -> int {
+  const auto m_serveThread = std::thread(ipserver);
   auto eng = Orpheus::EngineFactory().ofSampleRate(Orpheus::EngineFactory::SampleRate::kHz48).build();
   s_engine = &eng;
 
